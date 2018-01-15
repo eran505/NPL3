@@ -17,6 +17,7 @@ from nltk.parse.corenlp import CoreNLPDependencyParser
 import nltk
 from nltk.tag import StanfordNERTagger
 from nltk.parse.stanford import StanfordParser
+import matplotlib.pyplot as plt
 from nltk.tag import StanfordNERTagger
 from nltk.tag import StanfordNERTagger
 #from nltk.tag.stanford import CoreNLPTagger
@@ -37,7 +38,7 @@ class PN_System:
         self.df=None
         self.ctr = 1
         self.top_k_grams=[]
-        self.k=5
+        self.k=10
         self.ctr2 = 1
         self._read_data()
         self.read_pos_file()
@@ -70,12 +71,10 @@ class PN_System:
         print ne_tree
         out = pars_tree(ne_tree)
         print "--"*55
-
         filepath='/home/ise/NLP/NLP3/ner/ner_{}.txt'.format(id)
         with open(filepath, 'w') as file_handler:
             for item in out:
                 file_handler.write("{}\n".format(item))
-
 
         return out
 
@@ -84,15 +83,18 @@ class PN_System:
         list_pos=[]
         arr_txt = [x for x in os.listdir(path) if x.endswith(".txt")]
         #print(arr_txt)
+        list_bi_gram=[]
+        list_tri_gram=[]
         print "size",len(arr_txt)
         for x in arr_txt:
             id_num=(x[4:-4])
             id_num= int(id_num)
-            ctr_line=0
             pos_seq=[]
             word_seq=[]
             d_pos={'ID':id_num}
+
             with open(path+x, 'r') as file_pos:
+                ctr_pos = 0
                 for line in file_pos:
                     #print line
                     if len(line)>1:
@@ -105,16 +107,31 @@ class PN_System:
                             d_pos[pos_i]+=1
                         else:
                             d_pos[pos_i]=1
-                self.freq_ngrams_dico(pos_seq,2,d_pos)
-                self.freq_ngrams_dico(pos_seq,3,d_pos)
+                        ctr_pos+=1
+                d_pos['All_POS']=ctr_pos
+                biGram_d = self.freq_ngrams_dico(pos_seq,2)
+                triGram_d = self.freq_ngrams_dico(pos_seq,3)
+                triGram_d['ID'] = id_num
+                biGram_d['ID'] = id_num
+                list_bi_gram.append(biGram_d)
+                list_tri_gram.append(triGram_d)
                 list_pos.append(d_pos)
-        df = pd.DataFrame(list_pos)
-        print "info..."
-        print "df_pos = ",df.shape
-        print "self.df = ",self.df.shape
+        df_uni = pd.DataFrame(list_pos)
+        df_bi = pd.DataFrame(list_bi_gram)
+        df_tri = pd.DataFrame(list_tri_gram)
 
-        res  = self.get_statistics(df)
+        print self.time_stat(df_uni,'NN')#   ['NN','NNS','JJ'])
+
+        exit(0)
+        print "{} size: {}".format("uni",df_uni.shape)
+        print "{} size: {}".format("bi", df_bi.shape)
+        print "{} size: {}".format("tri", df_tri.shape)
+        res  = self.get_statistics(df_uni)
+        res  = self.get_statistics(df_bi)
+        res  = self.get_statistics(df_tri)
+
         print "sorting..."
+
         new_d = {}
         sortedList = sorted(res.values())
         for sortedKey in sortedList:
@@ -122,23 +139,34 @@ class PN_System:
                 if val == sortedKey:
                     new_d[key]=val
 
-        print new_d
-
         result_df = pd.merge(self.df,df,on='ID')
         self.df = result_df.fillna(0)
         print "merge.df = ", self.df.shape
         print "done"
 
 
-    def freq_ngrams_dico(self,arr_tokens,n,d):
+    def freq_ngrams_dico(self,arr_tokens,n):
+        ctr = 0
+        d={}
         token_grams = ngrams(arr_tokens,n)
         for gram in token_grams:
             if gram in d :
                 d[gram]+=1
             else:
                 d[gram]=1
+            ctr=+1
+        d['All_POS'] = ctr
         return d
 
+    def get_statistic_by_name(self,df,name,arr_pos):
+        result_df = pd.merge(self.df, df, on='ID')
+        ans_dict = {}
+        df_tmp = result_df.loc[result_df['president'] == name ]
+        self.get_statistics(df_tmp)
+        for pos in arr_pos:
+            if pos in df_tmp:
+                ans_dict[pos] = df_tmp[pos].sum()
+        return ans_dict
 
     def get_statistics(self,df):
         d_stat={}
@@ -154,14 +182,26 @@ class PN_System:
             sum_i = df[col].sum()
             d_stat[col]= sum_i
             self._manger_array_min(sum_i,col)
+        print self.top_k_grams
+        print "#"*200
+        print self.top_k
         return d_stat
+
+    def time_stat(self,df,pos):
+        result_df = pd.merge(self.df, df, on='ID')
+        result_df.groupby(['year'])
+        print list(result_df)
+        print "making plot.."
+        result_df['norm_'+pos] = result_df[pos] / result_df['All_POS']
+        result_df.plot('year','norm_'+pos,logy=True)
+        plt.show()
 
 
     def _manger_array_min(self,num,gram):
-        print self.top_k_grams
+        #print self.top_k_grams
         min = self.top_k[0]
         max = self.top_k[-1]
-        print "num:",num
+       # print "num:",num
         if num > max:
             tmp = self.top_k[1:]
             tmp.append(num)
@@ -169,7 +209,6 @@ class PN_System:
             self.top_k_grams.append([gram])
             self.top_k_grams = self.top_k_grams[1:]
         elif num >= min and max >= num :
-            print "in"
             for x in range(self.k):
                 if self.top_k[x] < num:
                     continue
@@ -200,6 +239,7 @@ class PN_System:
         df.insert(0, 'ID', range(1, 1 + len(df)))
         print df.shape
         self.df=df
+        print df['president'][:30]
         return
         self.df['ner'] = np.nan
         self.df['ner'] = df.apply(lambda x: self._NER(x['text'],x['ID']), axis=1)
